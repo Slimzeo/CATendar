@@ -1,0 +1,26 @@
+{
+  "name": "CATendar",
+  "outputfilename": "CATendar",
+  "icon": "build/windows/icon.ico",
+  "frontend:install": "npm install",
+  "frontend:dev": "npm run dev",
+  "frontend:build": "npm run build",
+  "author": {
+    "name": "",
+    "email": ""
+  },
+  "info": {
+    "companyName": "CATendar",
+    "productName": "CATendar",
+    "productVersion": "1.0.0",
+    "copyright": "",
+    "comments": ""
+  },
+  "windows": {
+    "title": "CATendar",
+    "width": 1000,
+    "height": 700,
+    "minwidth": 360,
+    "minheight": 280
+  }
+}

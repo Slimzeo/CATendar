@@ -1,0 +1,61 @@
+{
+  "name": "calendar-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "build:backend": "cd ../backend && go build -o ../frontend/build/calendar-backend.exe ./cmd/server",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5179 && electron electron/main.js\"",
+    "electron:build": "npm run build:backend && vite build && electron-builder"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "date-fns": "^3.3.1",
+    "naive-ui": "^2.38.1",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.3",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4",
+    "vue-tsc": "^2.0.6",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.catendar.app",
+    "productName": "CATendar",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/calendar-backend.exe",
+        "to": "calendar-backend.exe"
+      }
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "dist/assets/CATendar.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
