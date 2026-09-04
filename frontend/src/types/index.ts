@@ -58,8 +58,10 @@ export interface EmailMessage {
   subject: string
   sender: string
   receivedAt: string
+  sentAt?: string
   sourceUrl: string
   text: string
+  readError?: string
 }
 
 export interface AISettings {
@@ -93,6 +95,8 @@ export interface AISyncStatus {
   message?: string
   provider?: AIProvider
   emailCount: number
+  readEmails: number
+  unreadableEmails: number
   created: number
   skipped: number
   rejected: number

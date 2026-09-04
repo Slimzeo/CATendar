@@ -30,17 +30,19 @@ type AccountInput struct {
 }
 
 type MessageSummary struct {
-	ID         string    `json:"id"`
-	MessageID  string    `json:"messageId"`
-	Subject    string    `json:"subject"`
-	Sender     string    `json:"sender"`
-	ReceivedAt time.Time `json:"receivedAt"`
-	SourceURL  string    `json:"sourceUrl"`
+	ID         string     `json:"id"`
+	MessageID  string     `json:"messageId"`
+	Subject    string     `json:"subject"`
+	Sender     string     `json:"sender"`
+	ReceivedAt time.Time  `json:"receivedAt"`
+	SentAt     *time.Time `json:"sentAt,omitempty"`
+	SourceURL  string     `json:"sourceUrl"`
 }
 
 type Message struct {
 	MessageSummary
-	Text string `json:"text"`
+	Text      string `json:"text"`
+	ReadError string `json:"readError,omitempty"`
 }
 
 type Reader interface {

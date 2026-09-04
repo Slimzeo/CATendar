@@ -18,6 +18,11 @@ const receivedAt = computed(() => {
   if (!props.message?.receivedAt) return ''
   return format(parseISO(props.message.receivedAt), 'MMM d, yyyy · HH:mm')
 })
+
+const sentAt = computed(() => {
+  if (!props.message?.sentAt) return ''
+  return format(parseISO(props.message.sentAt), 'MMM d, yyyy · HH:mm')
+})
 </script>
 
 <template>
@@ -33,7 +38,10 @@ const receivedAt = computed(() => {
           <h2>{{ message.subject || 'Untitled email' }}</h2>
           <div class="email-meta">
             <span>{{ message.sender }}</span>
-            <time>{{ receivedAt }}</time>
+            <span class="email-times">
+              <time>Received {{ receivedAt }}</time>
+              <time v-if="sentAt">Sent {{ sentAt }}</time>
+            </span>
           </div>
         </header>
         <pre>{{ message.text || 'This email has no readable text body.' }}</pre>
@@ -98,6 +106,13 @@ const receivedAt = computed(() => {
   gap: 6px 14px;
   color: var(--text-tertiary);
   font-size: 11px;
+}
+
+.email-times {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
 }
 
 .source-email pre {

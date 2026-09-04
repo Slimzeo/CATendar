@@ -30,18 +30,20 @@ const (
 )
 
 type Status struct {
-	RunID      string         `json:"runId,omitempty"`
-	State      string         `json:"state"`
-	Stage      string         `json:"stage,omitempty"`
-	Message    string         `json:"message,omitempty"`
-	Provider   agent.Provider `json:"provider,omitempty"`
-	EmailCount int            `json:"emailCount"`
-	Created    int            `json:"created"`
-	Skipped    int            `json:"skipped"`
-	Rejected   int            `json:"rejected"`
-	Conflicts  int            `json:"conflicts"`
-	StartedAt  time.Time      `json:"startedAt,omitempty"`
-	FinishedAt time.Time      `json:"finishedAt,omitempty"`
+	RunID            string         `json:"runId,omitempty"`
+	State            string         `json:"state"`
+	Stage            string         `json:"stage,omitempty"`
+	Message          string         `json:"message,omitempty"`
+	Provider         agent.Provider `json:"provider,omitempty"`
+	EmailCount       int            `json:"emailCount"`
+	ReadEmails       int            `json:"readEmails"`
+	UnreadableEmails int            `json:"unreadableEmails"`
+	Created          int            `json:"created"`
+	Skipped          int            `json:"skipped"`
+	Rejected         int            `json:"rejected"`
+	Conflicts        int            `json:"conflicts"`
+	StartedAt        time.Time      `json:"startedAt,omitempty"`
+	FinishedAt       time.Time      `json:"finishedAt,omitempty"`
 }
 
 type Service struct {
@@ -62,6 +64,8 @@ type runState struct {
 	account    email.Account
 	summaries  []email.MessageSummary
 	available  map[string]email.MessageSummary
+	readIDs    map[string]struct{}
+	unreadable map[string]struct{}
 	batchCalls int
 }
 
@@ -195,10 +199,12 @@ func (s *Service) run(ctx context.Context, cancel context.CancelFunc, runID stri
 	}
 	defer session.Close()
 	state := &runState{
-		runID:     runID,
-		account:   account,
-		summaries: summaries,
-		available: make(map[string]email.MessageSummary, len(summaries)),
+		runID:      runID,
+		account:    account,
+		summaries:  summaries,
+		available:  make(map[string]email.MessageSummary, len(summaries)),
+		readIDs:    make(map[string]struct{}),
+		unreadable: make(map[string]struct{}),
 	}
 	for _, summary := range summaries {
 		state.available[summary.ID] = summary
@@ -291,6 +297,19 @@ func (s *Service) handleCLIRequest(ctx context.Context, state *runState, request
 		if err != nil {
 			return nil, err
 		}
+		for _, message := range messages {
+			state.readIDs[message.ID] = struct{}{}
+			if message.ReadError == "" {
+				delete(state.unreadable, message.ID)
+			} else {
+				state.unreadable[message.ID] = struct{}{}
+			}
+		}
+		s.update(state.runID, func(status *Status) {
+			status.ReadEmails = len(state.readIDs)
+			status.UnreadableEmails = len(state.unreadable)
+			status.Message = fmt.Sprintf("Reviewed %d email bodies…", status.ReadEmails)
+		})
 		return messages, nil
 
 	case "calendar.list":

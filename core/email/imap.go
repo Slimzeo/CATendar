@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -24,7 +25,7 @@ import (
 
 const (
 	imapTimeout        = 20 * time.Second
-	maxMessageBodySize = 256 * 1024
+	maxMessageTextSize = 256 * 1024
 )
 
 var (
@@ -102,19 +103,7 @@ func (IMAPReader) ListRecent(
 		if item == nil || item.Envelope == nil {
 			continue
 		}
-		receivedAt := item.InternalDate
-		if !item.Envelope.Date.IsZero() {
-			receivedAt = item.Envelope.Date
-		}
-		messageID := canonicalMessageID(item.Envelope.MessageId, mailbox.UidValidity, item.Uid)
-		result = append(result, MessageSummary{
-			ID:         formatMessageRef(mailbox.UidValidity, item.Uid),
-			MessageID:  messageID,
-			Subject:    strings.TrimSpace(item.Envelope.Subject),
-			Sender:     formatAddresses(item.Envelope.From),
-			ReceivedAt: receivedAt,
-			SourceURL:  sourceURL(account.ID, mailbox.UidValidity, item.Uid, messageID),
-		})
+		result = append(result, messageSummary(item, account.ID, mailbox.UidValidity))
 	}
 	if err := <-fetchDone; err != nil {
 		return nil, fmt.Errorf("read email headers: %w", err)
@@ -175,38 +164,51 @@ func (IMAPReader) Read(
 	}()
 
 	result := make([]Message, 0, len(ids))
+	seen := make(map[uint32]struct{}, len(ids))
 	for item := range messages {
+		if item == nil {
+			continue
+		}
 		id, ok := requested[item.Uid]
 		if !ok || item.Envelope == nil {
 			continue
 		}
+		seen[item.Uid] = struct{}{}
+		summary := messageSummary(item, account.ID, mailbox.UidValidity)
+		summary.ID = id
 		body := item.GetBody(section)
 		if body == nil {
+			result = append(result, Message{
+				MessageSummary: summary,
+				ReadError:      "message body is unavailable",
+			})
 			continue
 		}
 		text, err := readMessageText(body)
 		if err != nil {
-			return nil, fmt.Errorf("parse email %s: %w", id, err)
+			result = append(result, Message{
+				MessageSummary: summary,
+				Text:           text,
+				ReadError:      "could not parse message body: " + err.Error(),
+			})
+			continue
 		}
-		receivedAt := item.InternalDate
-		if !item.Envelope.Date.IsZero() {
-			receivedAt = item.Envelope.Date
-		}
-		messageID := canonicalMessageID(item.Envelope.MessageId, mailbox.UidValidity, item.Uid)
 		result = append(result, Message{
-			MessageSummary: MessageSummary{
-				ID:         id,
-				MessageID:  messageID,
-				Subject:    strings.TrimSpace(item.Envelope.Subject),
-				Sender:     formatAddresses(item.Envelope.From),
-				ReceivedAt: receivedAt,
-				SourceURL:  sourceURL(account.ID, mailbox.UidValidity, item.Uid, messageID),
-			},
-			Text: text,
+			MessageSummary: summary,
+			Text:           text,
 		})
 	}
 	if err := <-fetchDone; err != nil {
 		return nil, fmt.Errorf("read email messages: %w", err)
+	}
+	for uid, id := range requested {
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		result = append(result, Message{
+			MessageSummary: MessageSummary{ID: id},
+			ReadError:      "message is no longer available",
+		})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].ReceivedAt.After(result[j].ReceivedAt)
@@ -259,7 +261,7 @@ func (d imapDialer) Dial(network, address string) (net.Conn, error) {
 }
 
 func readMessageText(reader io.Reader) (string, error) {
-	mailReader, err := messageMail.CreateReader(io.LimitReader(reader, maxMessageBodySize))
+	mailReader, err := messageMail.CreateReader(reader)
 	if err != nil && !message.IsUnknownCharset(err) {
 		return "", err
 	}
@@ -272,16 +274,19 @@ func readMessageText(reader io.Reader) (string, error) {
 			break
 		}
 		if err != nil && !message.IsUnknownCharset(err) {
-			return "", err
+			return preferredMessageText(plainParts, htmlParts), err
+		}
+		if part == nil {
+			continue
 		}
 		header, ok := part.Header.(*messageMail.InlineHeader)
 		if !ok {
 			continue
 		}
 		contentType, _, _ := header.ContentType()
-		content, err := io.ReadAll(io.LimitReader(part.Body, maxMessageBodySize))
+		content, err := io.ReadAll(io.LimitReader(part.Body, maxMessageTextSize))
 		if err != nil {
-			return "", err
+			return preferredMessageText(plainParts, htmlParts), err
 		}
 		switch strings.ToLower(contentType) {
 		case "text/plain", "":
@@ -291,11 +296,15 @@ func readMessageText(reader io.Reader) (string, error) {
 		}
 	}
 
+	return preferredMessageText(plainParts, htmlParts), nil
+}
+
+func preferredMessageText(plainParts, htmlParts []string) string {
 	text := strings.Join(plainParts, "\n\n")
 	if strings.TrimSpace(text) == "" {
 		text = strings.Join(htmlParts, "\n\n")
 	}
-	return cleanText(text), nil
+	return cleanText(text)
 }
 
 func htmlToText(value string) string {
@@ -308,6 +317,7 @@ func htmlToText(value string) string {
 }
 
 func cleanText(value string) string {
+	value = strings.ToValidUTF8(value, "")
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	value = strings.ReplaceAll(value, "\r", "\n")
 	lines := strings.Split(value, "\n")
@@ -316,10 +326,36 @@ func cleanText(value string) string {
 	}
 	value = strings.TrimSpace(strings.Join(lines, "\n"))
 	value = manyLinesPattern.ReplaceAllString(value, "\n\n")
-	if len(value) > maxMessageBodySize {
-		value = value[:maxMessageBodySize]
+	if len(value) > maxMessageTextSize {
+		end := maxMessageTextSize
+		for end > 0 && !utf8.ValidString(value[:end]) {
+			end--
+		}
+		value = value[:end]
 	}
 	return value
+}
+
+func messageSummary(item *imap.Message, accountID string, uidValidity uint32) MessageSummary {
+	receivedAt := item.InternalDate
+	if receivedAt.IsZero() {
+		receivedAt = item.Envelope.Date
+	}
+	var sentAt *time.Time
+	if !item.Envelope.Date.IsZero() {
+		value := item.Envelope.Date
+		sentAt = &value
+	}
+	messageID := canonicalMessageID(item.Envelope.MessageId, uidValidity, item.Uid)
+	return MessageSummary{
+		ID:         formatMessageRef(uidValidity, item.Uid),
+		MessageID:  messageID,
+		Subject:    strings.TrimSpace(item.Envelope.Subject),
+		Sender:     formatAddresses(item.Envelope.From),
+		ReceivedAt: receivedAt,
+		SentAt:     sentAt,
+		SourceURL:  sourceURL(accountID, uidValidity, item.Uid, messageID),
+	}
 }
 
 func formatAddresses(addresses []*imap.Address) string {

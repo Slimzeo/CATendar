@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadTailDrainsLargeOutputAndKeepsTheEnd(t *testing.T) {
@@ -34,6 +35,26 @@ func TestAdaptersUseTheSharedCATendarCLI(t *testing.T) {
 		}
 		if provider == ProviderClaude && !strings.Contains(strings.Join(invocation.Args, " "), request.CLICommand+" cli") {
 			t.Fatalf("Claude invocation does not constrain Bash to the shared CLI: %#v", invocation.Args)
+		}
+	}
+}
+
+func TestPromptRequiresHighRecallAndReceiptAnchoredDeadlines(t *testing.T) {
+	prompt := Prompt("./catendar-cli", time.Date(2026, time.September, 5, 12, 0, 0, 0, time.FixedZone("CST", 8*60*60)))
+
+	for _, required := range []string{
+		"MUST read",
+		"interview",
+		"面试",
+		"receivedAt",
+		"sentAt",
+		"收到后三天内",
+		"收到后 3 天内",
+		"72 hours",
+		"readError",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("prompt does not contain %q", required)
 		}
 	}
 }

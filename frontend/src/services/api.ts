@@ -90,7 +90,16 @@ export const aiSyncApi = {
 
   status: async (): Promise<AISyncStatus> => {
     if (!('go' in window)) {
-      return { state: 'idle', emailCount: 0, created: 0, skipped: 0, rejected: 0, conflicts: 0 }
+      return {
+        state: 'idle',
+        emailCount: 0,
+        readEmails: 0,
+        unreadableEmails: 0,
+        created: 0,
+        skipped: 0,
+        rejected: 0,
+        conflicts: 0
+      }
     }
     return GetAISyncStatus() as Promise<AISyncStatus>
   },

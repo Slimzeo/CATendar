@@ -157,6 +157,9 @@ func (s *Service) ReadSource(ctx context.Context, source string) (*Message, erro
 	if len(messages) != 1 {
 		return nil, errors.New("source email was not found")
 	}
+	if messages[0].ReadError != "" {
+		return nil, errors.New(messages[0].ReadError)
+	}
 	return &messages[0], nil
 }
 

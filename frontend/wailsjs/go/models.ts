@@ -81,6 +81,8 @@ export namespace ai_sync {
 	    message?: string;
 	    provider?: string;
 	    emailCount: number;
+	    readEmails: number;
+	    unreadableEmails: number;
 	    created: number;
 	    skipped: number;
 	    rejected: number;
@@ -102,6 +104,8 @@ export namespace ai_sync {
 	        this.message = source["message"];
 	        this.provider = source["provider"];
 	        this.emailCount = source["emailCount"];
+	        this.readEmails = source["readEmails"];
+	        this.unreadableEmails = source["unreadableEmails"];
 	        this.created = source["created"];
 	        this.skipped = source["skipped"];
 	        this.rejected = source["rejected"];
@@ -271,8 +275,11 @@ export namespace email {
 	    sender: string;
 	    // Go type: time
 	    receivedAt: any;
+	    // Go type: time
+	    sentAt?: any;
 	    sourceUrl: string;
 	    text: string;
+	    readError?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
@@ -285,8 +292,10 @@ export namespace email {
 	        this.subject = source["subject"];
 	        this.sender = source["sender"];
 	        this.receivedAt = this.convertValues(source["receivedAt"], null);
+	        this.sentAt = this.convertValues(source["sentAt"], null);
 	        this.sourceUrl = source["sourceUrl"];
 	        this.text = source["text"];
+	        this.readError = source["readError"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

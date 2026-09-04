@@ -31,6 +31,8 @@ const showAISyncStatus = ref(false)
 const aiSyncStatus = ref<AISyncStatus>({
   state: 'idle',
   emailCount: 0,
+  readEmails: 0,
+  unreadableEmails: 0,
   created: 0,
   skipped: 0,
   rejected: 0,
@@ -47,6 +49,7 @@ const aiSyncCounts = computed(() => {
   const parts = [`${status.created} created`, `${status.skipped} skipped`]
   if (status.rejected) parts.push(`${status.rejected} rejected`)
   if (status.conflicts) parts.push(`${status.conflicts} conflicts`)
+  if (status.unreadableEmails) parts.push(`${status.unreadableEmails} unreadable`)
   return parts.join(' · ')
 })
 
@@ -260,6 +263,8 @@ onUnmounted(() => {
           <strong>{{ aiSyncStatus.message || 'AI Sync' }}</strong>
           <span v-if="aiSyncStatus.state === 'running' && aiSyncStatus.emailCount">
             {{ aiSyncStatus.emailCount }} recent emails
+            <span v-if="aiSyncStatus.readEmails"> · {{ aiSyncStatus.readEmails }} bodies read</span>
+            <span v-if="aiSyncStatus.unreadableEmails"> · {{ aiSyncStatus.unreadableEmails }} unreadable</span>
           </span>
           <span v-else-if="aiSyncStatus.state === 'succeeded'">{{ aiSyncCounts }}</span>
         </div>
