@@ -1,11 +1,12 @@
 # Dependencies
 node_modules/
-backend/node_modules/
 
 # Build outputs
-frontend/build/
 frontend/dist/
-frontend/dist-electron/
+build/bin/
+build/darwin/
+frontend/package.json.md5
+frontend/test-results/
 
 # Environment
 .env
@@ -18,7 +19,13 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+.claude/
 
 # Database
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
+
+# @byted-motor/aicoding-telemetry: git-hook run log (do not commit)
+.motor-code/log/

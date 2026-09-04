@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { NDrawer, NDrawerContent, NButton, NEmpty } from 'naive-ui'
-import { format } from 'date-fns'
-import { useThemeStore } from '@/stores/theme'
+import { computed } from 'vue'
+import { format, parseISO } from 'date-fns'
+import { NButton, NDrawer, NDrawerContent, NEmpty, NTooltip } from 'naive-ui'
 import type { CalendarEvent } from '@/types'
+import { openExternal } from '@/wails'
+
+interface DescriptionSegment {
+  type: 'text' | 'url'
+  value: string
+  href?: string
+}
 
 const props = defineProps<{
   show: boolean
@@ -13,158 +19,75 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:show', value: boolean): void
-  (e: 'create', date: string): void
-  (e: 'edit', event: CalendarEvent): void
-  (e: 'toggle-side'): void
+  (event: 'update:show', value: boolean): void
+  (event: 'create', date: string): void
+  (event: 'edit', calendarEvent: CalendarEvent): void
+  (event: 'toggle-side'): void
+  (event: 'open-email', sourceURL: string): void
 }>()
-
-const themeStore = useThemeStore()
-
-// Track which event items are expanded
-const expandedId = ref<number | null>(null)
 
 const formattedDate = computed(() => {
   if (!props.date) return ''
-  return format(new Date(props.date), 'EEEE, MMMM d, yyyy')
+  return format(parseISO(props.date), 'EEEE, MMMM d')
 })
 
-function handleClose() {
-  emit('update:show', false)
+function formatTime(date: Date): string {
+  return format(date, 'HH:mm')
 }
 
-function handleAdd() {
-  emit('create', props.date)
+function eventTime(event: CalendarEvent): string {
+  if (event.allDay) return 'All day'
+
+  const start = parseISO(event.start)
+  if (!event.end) return formatTime(start)
+
+  const end = parseISO(event.end)
+  const startLabel = formatTime(start)
+  const endLabel = formatTime(end)
+  return startLabel === endLabel ? startLabel : `${startLabel}–${endLabel}`
 }
 
-function handleEventClick(event: CalendarEvent) {
-  // Toggle expand/collapse; if already expanded, collapse
-  if (expandedId.value === event.id) {
-    expandedId.value = null
-  } else {
-    expandedId.value = event.id
+function parseDescription(text: string): DescriptionSegment[] {
+  const urlPattern = /(https?:\/\/[^\s]+|catendar:\/\/[^\s]+|www\.[^\s]+)/gi
+  const segments: DescriptionSegment[] = []
+  let previousIndex = 0
+
+  for (const match of text.matchAll(urlPattern)) {
+    const index = match.index ?? 0
+    if (index > previousIndex) {
+      segments.push({ type: 'text', value: text.slice(previousIndex, index) })
+    }
+    const value = match[0]
+    segments.push({
+      type: 'url',
+      value,
+      href: value.startsWith('www.') ? `https://${value}` : value
+    })
+    previousIndex = index + value.length
   }
+
+  if (previousIndex < text.length) {
+    segments.push({ type: 'text', value: text.slice(previousIndex) })
+  }
+  return segments
 }
 
-function handleEditClick(event: CalendarEvent, e: MouseEvent) {
-  e.stopPropagation()
+function editEvent(event: CalendarEvent) {
   emit('edit', event)
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.replace('#', ''), 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+function handleEventKeydown(event: KeyboardEvent, calendarEvent: CalendarEvent) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  editEvent(calendarEvent)
 }
 
-function rgbToLinear(c: number): number {
-  const v = c / 255
-  return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
-}
-
-function relativeLuminance(r: number, g: number, b: number): number {
-  return 0.2126 * rgbToLinear(r) + 0.7152 * rgbToLinear(g) + 0.0722 * rgbToLinear(b)
-}
-
-function wcagContrast(l1: number, l2: number): number {
-  const lighter = Math.max(l1, l2)
-  const darker = Math.min(l1, l2)
-  return (lighter + 0.05) / (darker + 0.05)
-}
-
-function blendColor(eventHex: string, bgHex: string, alpha: number): [number, number, number] {
-  const [er, eg, eb] = hexToRgb(eventHex)
-  const [br, bg, bb] = hexToRgb(bgHex)
-  return [
-    Math.round(er * alpha + br * (1 - alpha)),
-    Math.round(eg * alpha + bg * (1 - alpha)),
-    Math.round(eb * alpha + bb * (1 - alpha))
-  ]
-}
-
-// DayEventsDrawer uses 20% opacity background (event.color + '20')
-function adjustColor(hex: string): string {
-  const bg = themeStore.isDark ? '#1a1a1a' : '#ffffff'
-  const [r, g, b] = blendColor(hex, bg, 0.2)
-  const bgLuminance = relativeLuminance(r, g, b)
-
-  const blackLuminance = relativeLuminance(26, 26, 26)
-  const whiteLuminance = relativeLuminance(255, 255, 255)
-
-  const contrastBlack = wcagContrast(bgLuminance, blackLuminance)
-  const contrastWhite = wcagContrast(bgLuminance, whiteLuminance)
-
-  return contrastWhite >= contrastBlack ? '#ffffff' : '#1a1a1a'
-}
-
-function formatTime(dateStr: string): string {
-  const d = new Date(dateStr)
-  const h = d.getHours().toString().padStart(2, '0')
-  const m = d.getMinutes().toString().padStart(2, '0')
-  return `${h}:${m}`
-}
-
-// Split description into text/URL segments for safe Vue rendering (no v-html)
-interface DescSegment {
-  type: 'text' | 'url'
-  value: string
-}
-
-function handleLinkClick(url: string) {
-  const api = window.electronAPI as { openExternal?: (url: string) => Promise<void> } | undefined
-  if (api?.openExternal) {
-    api.openExternal(url)
-  } else {
-    window.open(url, '_blank', 'noopener,noreferrer')
+function openLink(url: string) {
+  if (url.startsWith('catendar://email/')) {
+    emit('open-email', url)
+    return
   }
-}
-
-function parseDescription(text: string): DescSegment[] {
-  // Match protocol URLs first, then bare domains (www.xxx.com)
-  const protocolRegex = /(https?:\/\/[^\s]+)/g
-  const segments: DescSegment[] = []
-  let lastIndex = 0
-  let match
-
-  // First pass: protocol URLs
-  while ((match = protocolRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      // Check if this gap contains a bare domain
-      const gap = text.slice(lastIndex, match.index)
-      let bareMatch
-      const bareRegex = /\bwww\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}[^\s]*/g
-      let foundBare = false
-      while ((bareMatch = bareRegex.exec(gap)) !== null) {
-        segments.push({ type: 'url', value: bareMatch[0].startsWith('http') ? bareMatch[0] : 'https://' + bareMatch[0] })
-        foundBare = true
-      }
-      // If no bare domain found, the gap is plain text
-      if (!foundBare && gap.trim()) {
-        segments.push({ type: 'text', value: gap })
-      }
-    }
-    segments.push({ type: 'url', value: match[1] })
-    lastIndex = protocolRegex.lastIndex
-  }
-
-  // Remaining text: bare domains only
-  const remaining = text.slice(lastIndex)
-  if (remaining) {
-    let bareMatch
-    const bareRegex = /(\bwww\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}[^\s]*)/g
-    let bareLastIndex = 0
-    while ((bareMatch = bareRegex.exec(remaining)) !== null) {
-      if (bareMatch.index > bareLastIndex) {
-        segments.push({ type: 'text', value: remaining.slice(bareLastIndex, bareMatch.index) })
-      }
-      segments.push({ type: 'url', value: 'https://' + bareMatch[1] })
-      bareLastIndex = bareRegex.lastIndex
-    }
-    if (bareLastIndex < remaining.length) {
-      segments.push({ type: 'text', value: remaining.slice(bareLastIndex) })
-    }
-  }
-
-  return segments
+  openExternal(url)
 }
 </script>
 
@@ -172,95 +95,88 @@ function parseDescription(text: string): DescSegment[] {
   <n-drawer
     :show="show"
     :placement="drawerSide"
-    :width="340"
+    :width="360"
     :resizable="true"
-    @update:show="handleClose"
+    display-directive="show"
+    @update:show="value => emit('update:show', value)"
   >
-    <n-drawer-content closable @close="handleClose">
+    <n-drawer-content closable @close="emit('update:show', false)">
       <template #header>
         <div class="drawer-header">
-          <span class="drawer-date">{{ formattedDate }}</span>
-          <div class="drawer-actions">
-            <n-button
-              @click="emit('toggle-side')"
-              title="Switch side"
-              class="switch-side-btn"
-              text
-              size="small"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="5" cy="12" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="19" cy="12" r="2" />
-              </svg>
-            </n-button>
+          <div>
+            <span class="drawer-kicker">Day plan</span>
+            <h2>{{ formattedDate }}</h2>
           </div>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button
+                quaternary
+                circle
+                size="small"
+                :aria-label="drawerSide === 'left' ? 'Move panel to the right' : 'Move panel to the left'"
+                @click="emit('toggle-side')"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path v-if="drawerSide === 'left'" d="M4 4h12v12H4zM11 7l3 3-3 3M6 10h8" />
+                  <path v-else d="M4 4h12v12H4zM9 7l-3 3 3 3M6 10h8" />
+                </svg>
+              </n-button>
+            </template>
+            {{ drawerSide === 'left' ? 'Move panel right' : 'Move panel left' }}
+          </n-tooltip>
         </div>
       </template>
 
       <div class="drawer-body">
         <div v-if="events.length === 0" class="empty-state">
-          <n-empty description="No events" size="small" />
+          <n-empty description="No events yet" size="small" />
+          <p>Select “Add event” to plan this day.</p>
         </div>
 
         <div v-else class="events-list">
-          <div
+          <article
             v-for="event in events"
             :key="event.id"
-            class="event-item"
-            :class="{ expanded: expandedId === event.id }"
-            :style="{
-              backgroundColor: event.color + '20',
-              borderLeft: `3px solid ${event.color}`,
-              color: adjustColor(event.color)
-            }"
-            @click="handleEventClick(event)"
+            class="event-row"
+            :style="{ '--event-color': event.color }"
+            role="button"
+            tabindex="0"
+            :aria-label="`Edit ${event.title}, ${eventTime(event)}`"
+            @click="editEvent(event)"
+            @keydown="keyboardEvent => handleEventKeydown(keyboardEvent, event)"
           >
-            <div class="event-header">
-              <div class="event-time-row">
-                <span class="event-time">{{ formatTime(event.start) }}</span>
-                <span v-if="event.end && event.end !== event.start" class="event-time-range">
-                  - {{ formatTime(event.end) }}
-                </span>
+            <span class="event-marker" aria-hidden="true" />
+            <div class="event-content">
+              <div class="event-meta">
+                <span>{{ eventTime(event) }}</span>
+                <span v-if="event.bold" class="emphasis-label">Emphasized</span>
               </div>
-              <button
-                class="edit-btn"
-                :style="{ color: adjustColor(event.color) }"
-                :title="expandedId === event.id ? 'Collapse' : 'Edit'"
-                @click="(e) => expandedId === event.id ? (expandedId = null, e.stopPropagation()) : handleEditClick(event, e)"
-              >
-                <svg v-if="expandedId !== event.id" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
+              <h3 :class="{ bold: event.bold }">{{ event.title }}</h3>
+              <p v-if="event.description" class="event-description">
+                <template v-for="(segment, index) in parseDescription(event.description)" :key="index">
+                  <a
+                    v-if="segment.type === 'url'"
+                    :href="segment.href"
+                    @click.stop.prevent="openLink(segment.href!)"
+                  >{{ segment.value }}</a>
+                  <span v-else>{{ segment.value }}</span>
+                </template>
+              </p>
             </div>
-            <div class="event-title">{{ event.title }}</div>
-
-            <!-- Expanded: description + edit shortcut -->
-            <div v-if="expandedId === event.id && event.description" class="event-description">
-              <template v-for="(seg, i) in parseDescription(event.description)" :key="i">
-                <a
-                  v-if="seg.type === 'url'"
-                  :href="seg.value"
-                  class="event-link"
-                  @click.prevent="handleLinkClick(seg.value)"
-                >{{ seg.value }}</a>
-                <span v-else>{{ seg.value }}</span>
-              </template>
-            </div>
-          </div>
+            <span class="edit-hint" aria-hidden="true">
+              <svg viewBox="0 0 20 20"><path d="m12.8 4.2 3 3L7.5 15.5 4 16l.5-3.5 8.3-8.3Z" /></svg>
+            </span>
+          </article>
         </div>
 
-        <div class="drawer-footer">
-          <n-button type="primary" block @click="handleAdd">
-            Add Event
+        <footer class="drawer-footer">
+          <n-button type="primary" block size="large" @click="emit('create', date)">
+            <template #icon>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>
+            </template>
+            Add event
           </n-button>
-        </div>
+        </footer>
       </div>
     </n-drawer-content>
   </n-drawer>
@@ -269,154 +185,191 @@ function parseDescription(text: string): DescSegment[] {
 <style scoped>
 .drawer-header {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
-  width: 100%;
+  gap: 16px;
 }
 
-.drawer-date {
-  font-size: 14px;
-  font-weight: 500;
+.drawer-kicker {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--primary-color);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 }
 
-.drawer-actions {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.switch-side-btn {
-  color: var(--text-secondary);
-  opacity: 0.5;
-  padding: 2px 4px;
-  transition: opacity 0.15s;
-}
-
-.switch-side-btn:hover {
-  opacity: 0.9;
+.drawer-header h2 {
+  margin: 0;
   color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.drawer-header svg,
+.drawer-footer svg,
+.edit-hint svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
 }
 
 .drawer-body {
   display: flex;
-  flex-direction: column;
   height: 100%;
-  gap: 16px;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .empty-state {
+  display: grid;
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  align-content: center;
+  justify-items: center;
+  gap: 9px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.empty-state p {
+  max-width: 24ch;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .events-list {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  min-height: 0;
   overflow-y: auto;
 }
 
-.event-item {
-  padding: 10px 12px;
-  border-radius: 6px;
+.event-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 24px;
+  gap: 10px;
+  align-items: start;
+  padding: 14px 6px;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 7px;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: background-color 140ms ease;
 }
 
-.event-item:hover {
-  opacity: 0.85;
-  transform: translateX(2px);
+:global(.n-drawer.slide-in-from-left-transition-enter-active),
+:global(.n-drawer.slide-in-from-right-transition-enter-active) {
+  transition-duration: 170ms !important;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
-.event-item.expanded {
-  transform: none;
+:global(.n-drawer.slide-in-from-left-transition-leave-active),
+:global(.n-drawer.slide-in-from-right-transition-leave-active) {
+  transition-duration: 130ms !important;
 }
 
-.event-header {
+.event-row:hover {
+  background: var(--bg-hover);
+}
+
+.event-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.event-marker {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--event-color);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--event-color) 14%, transparent);
+}
+
+.event-content {
+  min-width: 0;
+}
+
+.event-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 2px;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
-.event-time-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.edit-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.1s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.event-item:hover .edit-btn,
-.event-item.expanded .edit-btn {
-  opacity: 0.6;
-}
-
-.edit-btn:hover {
-  opacity: 1 !important;
-  background: rgba(128, 128, 128, 0.15);
-}
-
-.event-time {
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.8;
-}
-
-.event-time-range {
-  font-size: 12px;
-  font-weight: 500;
-  opacity: 0.7;
-}
-
-.event-title {
-  font-size: 13px;
+.emphasis-label {
+  color: var(--primary-color);
+  font-size: 9px;
   font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.event-row h3 {
+  margin: 3px 0 0;
   overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.event-row h3.bold {
+  font-weight: 750;
+}
+
 .event-description {
-  font-size: 11px;
-  margin-top: 4px;
-  opacity: 0.8;
-  word-break: break-all;
-  line-height: 1.5;
-  max-height: none;
-  overflow: visible;
+  display: -webkit-box;
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  text-wrap: pretty;
 }
 
-.event-link {
-  color: inherit;
+.event-description a {
+  color: var(--primary-color);
   text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
   text-underline-offset: 2px;
-  pointer-events: auto;
 }
 
-.event-link:hover {
-  text-decoration-style: solid;
-  opacity: 0.85;
+.edit-hint {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+
+.event-row:hover .edit-hint,
+.event-row:focus-visible .edit-hint {
+  color: var(--primary-color);
+  opacity: 1;
 }
 
 .drawer-footer {
-  padding-top: 12px;
-  border-top: 1px solid var(--border-color);
+  flex: 0 0 auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-elevated);
 }
 </style>

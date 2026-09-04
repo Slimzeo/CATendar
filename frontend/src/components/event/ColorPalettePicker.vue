@@ -1,66 +1,80 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { colorPalettes } from '@/constants/colorPalettes'
+import { eventColors } from '@/constants/eventColors'
 
 const model = defineModel<string>({ required: true })
 
-const flatColors = computed(() => {
-  const seen = new Set<string>()
-  const result: { color: string; paletteId: string }[] = []
-  for (const palette of colorPalettes) {
-    for (const color of palette.colors) {
-      if (!seen.has(color)) {
-        seen.add(color)
-        result.push({ color, paletteId: palette.id })
-      }
-    }
-  }
-  return result
+const availableColors = computed(() => {
+  if (eventColors.some(color => color.value === model.value)) return eventColors
+  return [{ name: 'Current color', value: model.value }, ...eventColors]
 })
 </script>
 
 <template>
-  <div class="palette-picker">
-    <div class="color-grid">
-      <button
-        v-for="item in flatColors"
-        :key="item.color"
-        class="color-swatch"
-        :class="{ selected: model === item.color }"
-        :style="{ backgroundColor: item.color }"
-        :title="item.color"
-        @click="model = item.color"
-      />
-    </div>
+  <div class="color-grid" role="radiogroup" aria-label="Event color">
+    <button
+      v-for="item in availableColors"
+      :key="item.value"
+      type="button"
+      class="color-swatch"
+      :class="{ selected: model === item.value }"
+      :style="{ '--swatch-color': item.value }"
+      :aria-label="item.name"
+      :aria-checked="model === item.value"
+      role="radio"
+      :title="item.name"
+      @click="model = item.value"
+    >
+      <svg v-if="model === item.value" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="m3.2 8.1 3 3.1 6.6-6.6" />
+      </svg>
+    </button>
   </div>
 </template>
 
 <style scoped>
-.palette-picker {
-  padding: 8px 0;
-}
-
 .color-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  padding: 2px;
 }
 
 .color-swatch {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 2px solid transparent;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--swatch-color) 75%, black);
+  border-radius: 50%;
+  background: var(--swatch-color);
+  color: white;
   cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s;
+  box-shadow: 0 0 0 2px var(--bg-elevated);
+  transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
 .color-swatch:hover {
-  transform: scale(1.1);
+  transform: translateY(-1px);
 }
 
 .color-swatch.selected {
-  border-color: #333;
-  box-shadow: 0 0 0 2px white inset;
+  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--primary-color);
+}
+
+.color-swatch:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.color-swatch svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
 }
 </style>

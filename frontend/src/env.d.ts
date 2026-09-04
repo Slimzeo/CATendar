@@ -1,11 +1,2 @@
 /// <reference types="vite/client" />
-
-declare global {
-  interface Window {
-    electronAPI?: {
-      setAlwaysOnTop: (flag: boolean, level?: string) => void
-    }
-  }
-}
-
-export {}
+/// <reference path="../wailsjs/runtime/runtime.d.ts" />

@@ -9,12 +9,12 @@ export const useEventsStore = defineStore('events', () => {
   const events = ref<CalendarEvent[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  let latestFetch = 0
 
   const eventsByDate = computed(() => {
     const map: Record<string, CalendarEvent[]> = {}
     const eventList = events.value || []
     for (const event of eventList) {
-      // Use only the date portion (yyyy-MM-dd) as key, even if start contains time
       const key = event.start.split('T')[0].split(' ')[0]
       if (!map[key]) map[key] = []
       map[key].push(event)
@@ -23,21 +23,25 @@ export const useEventsStore = defineStore('events', () => {
   })
 
   async function fetchEvents() {
+    const fetchId = ++latestFetch
     loading.value = true
     error.value = null
     try {
       const calendarStore = useCalendarStore()
-      const start = format(calendarStore.monthStart, 'yyyy-MM-dd')
-      const end = format(calendarStore.monthEnd, 'yyyy-MM-dd')
-      events.value = await eventApi.getEvents(start, end)
+      const start = format(calendarStore.visibleStart, 'yyyy-MM-dd')
+      const end = format(calendarStore.visibleEnd, 'yyyy-MM-dd')
+      const result = await eventApi.getEvents(start, end)
+      if (fetchId === latestFetch) events.value = result
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to fetch events'
+      if (fetchId === latestFetch) {
+        error.value = e instanceof Error ? e.message : 'Failed to fetch events'
+      }
     } finally {
-      loading.value = false
+      if (fetchId === latestFetch) loading.value = false
     }
   }
 
-  async function createEvent(input: EventInput) {
+  async function createEvent(input: EventInput): Promise<CalendarEvent> {
     try {
       const newEvent = await eventApi.createEvent(input)
       events.value.push(newEvent)
@@ -48,7 +52,7 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  async function updateEvent(id: number, input: EventInput) {
+  async function updateEvent(id: number, input: EventInput): Promise<CalendarEvent> {
     try {
       const updated = await eventApi.updateEvent(id, input)
       const index = events.value.findIndex(e => e.id === id)
@@ -62,7 +66,7 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  async function deleteEvent(id: number) {
+  async function deleteEvent(id: number): Promise<void> {
     try {
       await eventApi.deleteEvent(id)
       events.value = events.value.filter(e => e.id !== id)
@@ -73,7 +77,6 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   return {
-    events,
     loading,
     error,
     eventsByDate,

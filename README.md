@@ -1,53 +1,131 @@
-## Background
-最近笔试, 面试的什么都很多. 市面上的一些日历工具不能把窗口PIN到最顶上, 出于这个需求我选择自己用闲余时间vibe coding开发了一个日历小工具. 
+# CATendar
 
-## Functions
+CATendar 是一个可常驻桌面、支持窗口置顶的本地月历。应用使用 Wails 将 Vue 3 前端、Go 业务逻辑和 SQLite 数据库打包进同一个桌面进程，不依赖云服务或本地 HTTP 服务。
 
-### Calendar View
-- **月视图** — 以月为单位的日历网格，清晰展示每天的事件分布
-- **月导航** — 支持切换上 / 下个月，以及一键回到「今天」
-- **今日高亮** — 当前日期有特殊标记，一眼识别
-- **缩放 (Zoom)** — `Ctrl + 滚轮` 放大 / 缩小日历（100% ~ 150%）
-- **平移 (Pan)** — 右键拖拽可在缩放后平移视图，支持自动适应窗口大小
+## 功能
 
-![image-20260404230639438](Images/image-20260404230639438.png)
+- 月视图、上月/下月导航和一键返回今天
+- 创建、编辑、确认删除事件
+- 全天事件或带起止时间的事件
+- 事件颜色、标题强调和可点击的描述链接
+- 单日侧栏，以及可切换左右位置的侧栏
+- `100%–150%` 日历缩放；缩放后可滚动或右键拖动画布
+- 浅色/深色主题、事件时间显隐，设置会保存在本机
+- 窗口置顶、关闭后驻留系统托盘
+- 键盘操作和清晰的焦点状态
+- AI Sync：自动调用本机 Codex 或 Claude Code，从最近 30 天邮件中整理并批量更新日历
 
-![image-20260404230650557](Images/image-20260404230650557.png)
+## 快捷键
 
-![image-20260404231024218](Images/image-20260404231024218.png)
+| 操作 | 快捷键 |
+|---|---|
+| 上一个月 / 下一个月 | `←` / `→` |
+| 返回今天 | `T` |
+| 新建事件 | `N` |
+| 缩放日历 | `Ctrl`/`Cmd` + 滚轮 |
 
-### Event Management
-- **创建事件** — 点击日期格子或侧边栏「新建」按钮，弹出事件编辑弹窗
-- **编辑事件** — 点击已有事件即可修改
-- **删除事件** — 在编辑弹窗中删除
-- **事件属性**：
-  - 标题（支持加粗）
-  - 日期 + 开始 / 结束时间（可选）
-  - 全天事件开关
-  - 颜色标签（从预设调色板选择）
-  - 描述（支持链接，如 `https://meet.google.com/...`）
-  
-  ![image-20260404230726182](Images/image-20260404230726182.png)
-  
-  
+日期格支持键盘聚焦。点击日期查看当天安排；悬停日期后点击 `+` 可直接新建事件。
 
-![image-20260404230803439](Images/image-20260404230803439.png)
+## 技术栈
 
-### Window & System
+- Wails 2.12
+- Go 1.24
+- Vue 3、TypeScript、Pinia、Naive UI、Vite
+- SQLite（`go-sqlite3`）
 
-- **置顶窗口** — 点击工具栏图钉按钮，将日历窗口Pin在所有窗口最上层
-- **深色 / 浅色模式** — 一键切换主题
-- **显示 / 隐藏时间** — 工具栏眼睛图标控制时间显示
-- **系统托盘** — 关闭窗口不退出应用，最小化到系统托盘，右键托盘图标可呼出菜单或退出
-- **开机自启** — 打包后的应用可配置为开机自启动（仅 Windows 打包版）
+仓库只保留一套 Wails 主线。旧 Electron 前端、Echo REST 服务及其重复依赖已经移除。
 
-![image-20260404230836458](Images/image-20260404230836458.png)
+## 本地开发
 
-![image-20260404230856518](Images/image-20260404230856518.png)
+先安装 Go、Node.js、平台所需的 C 编译工具和 Wails CLI，然后执行：
 
-### Data
+```bash
+cd frontend
+npm ci
+cd ..
+wails dev
+```
 
-- **SQLite 本地存储** — 所有事件保存在本地数据库 `backend/calendar.db`，无云端依赖
-- **RESTful API** — Go Echo 后端提供 `/api/events` CRUD 接口 
+只预览前端布局时可以运行：
 
-![image-20260404230925018](Images/image-20260404230925018.png)
+```bash
+cd frontend
+npm run dev
+```
+
+纯浏览器预览没有 Wails IPC，因此可以浏览界面和打开表单，但不会写入事件。
+
+## AI Sync
+
+AI Sync 由三层组成，Codex 和 Claude Code 只是在最外层使用不同的启动适配器：
+
+1. `core/email` 在 Go Core 内连接邮箱，读取最近 30 天邮件；邮箱密码或应用专用密码不会交给 Agent。
+2. `core/ai_sync/cli` 将本次同步允许使用的邮件读取、日历查询和批量写入能力封装成统一的 CATendar CLI。
+3. `core/ai_sync/agent` 自动启动用户选择的 Codex 或 Claude Code，并给两者同一份任务约束和同一套 CLI。
+
+在工具栏打开 AI Sync 设置后：
+
+- 配置一个 IMAP 邮箱账户并测试连接；首版支持通用 IMAP，内置 QQ、Gmail、Outlook 和 iCloud 参数预设。
+- 选择 Codex 或 Claude Code。CATendar 会自动探测本机命令，也可以填写可执行文件的绝对路径。
+- 点击工具栏的 `AI Sync`。应用会在后台自动调用 Agent，无需用户另外打开终端或复制提示词。
+
+QQ 邮箱使用 `imap.qq.com:993` 和 TLS。需要先在 QQ 邮箱网页设置中开启 IMAP/SMTP 服务并生成授权码，然后把授权码填入 CATendar 的 `Password / app authorization code`，不要填写 QQ 登录密码。
+
+Agent 只会获得一次性、本次运行有效的 CATendar CLI 会话。它不能读取邮箱凭据，也不能任意访问 CATendar 数据库；日历写入由 Go Core 校验、去重并执行。邮件生成的事件会在描述中包含 `catendar://email/...` 来源链接，点击后由应用重新读取并展示原邮件。
+
+CATendar CLI 是 Agent 使用的内部能力界面；它仅在 AI Sync 启动的受控会话中可用：
+
+```text
+CATendar cli email list --cursor 0 --limit 50
+CATendar cli email read --ids <email-id>[,<email-id>]
+CATendar cli calendar list --from 2026-09-01 --to 2026-10-01
+CATendar cli calendar batch-upsert --input events.json
+```
+
+## 构建
+
+```bash
+wails build
+```
+
+Wails 会先执行前端类型检查与 Vite 构建，再将 `frontend/dist` 嵌入可执行文件。产物位于 `build/bin/`，不会提交到 Git。
+
+单独验证两端时：
+
+```bash
+cd frontend && npm run build
+cd .. && go build ./...
+```
+
+## 本地数据与凭据
+
+事件数据库保存在系统用户配置目录下的 `CATendar/calendar.db`：
+
+- Windows：`%AppData%\CATendar\calendar.db`
+- macOS：`~/Library/Application Support/CATendar/calendar.db`
+- Linux：`$XDG_CONFIG_HOME/CATendar/calendar.db`，未设置时通常为 `~/.config/CATendar/calendar.db`
+
+SQLite 只保存日历、邮箱账户的非敏感配置和 AI Provider 设置。邮箱密码或应用专用密码使用系统钥匙串保存：macOS Keychain、Windows Credential Manager，或 Linux Secret Service。它们不会写入 SQLite、日志或 Git。
+
+## 目录结构
+
+```text
+.
+├── main.go                       # 进程入口、Wails 启动和 CLI 模式分流
+├── app.go                        # 日历能力的 Wails 适配层
+├── ai_sync_app.go                # AI Sync 的 Wails 适配层
+├── tray*.go                      # 系统托盘平台实现
+├── core/                         # 不依赖 UI 的 Go Core
+│   ├── core.go                   # 组装数据库、日历、邮箱和 AI Sync 服务
+│   ├── database.go               # SQLite 初始化和迁移
+│   ├── calendar/                 # 日历 CRUD、批量写入、去重和冲突检查
+│   ├── email/                    # 邮箱配置、系统钥匙串和 IMAP 读取
+│   └── ai_sync/
+│       ├── ai_sync.go            # 同步任务状态与能力编排
+│       ├── session.go            # 一次性授权的本地 Core/CLI 会话
+│       ├── cli/                  # 统一 CATendar CLI 表现层
+│       └── agent/                # Agent Runner、Prompt、Codex/Claude 适配器
+├── frontend/                     # Vue 3 界面及 Wails 生成绑定
+├── build/                        # 打包图标和平台元数据
+└── wails.json                    # Wails 构建配置
+```

@@ -1,24 +1,54 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import { darkTheme, lightTheme, type GlobalTheme } from 'naive-ui'
+import { nextTick, ref } from 'vue'
 
-export const THEME_TRANSITION = '180ms cubic-bezier(0.2, 0, 0, 1)'
+const THEME_KEY = 'catendar-theme'
+const SHOW_TIME_KEY = 'catendar-show-time'
+
+function prefersDarkTheme(): boolean {
+  const savedTheme = localStorage.getItem(THEME_KEY)
+  if (savedTheme) return savedTheme === 'dark'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
 
 export const useThemeStore = defineStore('theme', () => {
-  const isDark = ref(false)
-  const theme = ref<GlobalTheme>(lightTheme)
-  const showTime = ref(true)
+  const isDark = ref(prefersDarkTheme())
+  const showTime = ref(localStorage.getItem(SHOW_TIME_KEY) !== 'false')
+
+  function applyTheme() {
+    document.documentElement.dataset.theme = isDark.value ? 'dark' : 'light'
+  }
 
   function toggleTheme() {
-    isDark.value = !isDark.value
-    theme.value = isDark.value ? darkTheme : lightTheme
-    document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light')
+    const updateTheme = async () => {
+      isDark.value = !isDark.value
+      localStorage.setItem(THEME_KEY, isDark.value ? 'dark' : 'light')
+      applyTheme()
+      await nextTick()
+    }
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const transitionDocument = document as Document & {
+      startViewTransition?: (update: () => Promise<void>) => unknown
+    }
+
+    if (reduceMotion || !transitionDocument.startViewTransition) {
+      void updateTheme()
+      return
+    }
+    transitionDocument.startViewTransition(updateTheme)
   }
+
+  function toggleShowTime() {
+    showTime.value = !showTime.value
+    localStorage.setItem(SHOW_TIME_KEY, String(showTime.value))
+  }
+
+  applyTheme()
 
   return {
     isDark,
-    theme,
     showTime,
-    toggleTheme
+    toggleTheme,
+    toggleShowTime
   }
 })

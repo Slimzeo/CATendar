@@ -8,37 +8,34 @@ import {
   addDays,
   addMonths,
   subMonths,
+  isWeekend,
   isSameMonth,
   isSameDay,
   format
 } from 'date-fns'
 import type { DayCell } from '@/types'
-import { useEventsStore } from './events'
 
 export const useCalendarStore = defineStore('calendar', () => {
   const currentDate = ref(new Date())
 
-  const currentMonth = computed(() => format(currentDate.value, 'yyyy-MM-dd'))
+  const currentMonth = computed(() => format(currentDate.value, 'yyyy-MM'))
   const monthLabel = computed(() => format(currentDate.value, 'MMMM yyyy'))
 
   const monthStart = computed(() => startOfMonth(currentDate.value))
   const monthEnd = computed(() => endOfMonth(currentDate.value))
+  const visibleStart = computed(() => startOfWeek(monthStart.value))
+  const visibleEnd = computed(() => endOfWeek(monthEnd.value))
 
   const calendarDays = computed((): DayCell[] => {
-    const eventsStore = useEventsStore()
-    const start = startOfWeek(monthStart.value)
-    const end = endOfWeek(monthEnd.value)
-
     const days: DayCell[] = []
-    let day = start
+    let day = visibleStart.value
 
-    while (day <= end) {
-      const dayStr = format(day, 'yyyy-MM-dd')
+    while (day <= visibleEnd.value) {
       days.push({
         date: new Date(day),
         isCurrentMonth: isSameMonth(day, currentDate.value),
         isToday: isSameDay(day, new Date()),
-        events: eventsStore.eventsByDate[dayStr] || []
+        isWeekend: isWeekend(day)
       })
       day = addDays(day, 1)
     }
@@ -71,9 +68,8 @@ export const useCalendarStore = defineStore('calendar', () => {
     currentDate,
     currentMonth,
     monthLabel,
-    monthStart,
-    monthEnd,
-    calendarDays,
+    visibleStart,
+    visibleEnd,
     weeks,
     nextMonth,
     prevMonth,
